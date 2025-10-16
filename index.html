@@ -132,7 +132,9 @@
             const debugMsg = document.getElementById('debug-msg');
             debugMsg.textContent = 'fetching /data...';
 
-            fetch('/data')
+            // add a cache-busting query and ask fetch to not use cache/service-worker cached responses
+            const dataUrl = '/data?bust=' + Date.now();
+            fetch(dataUrl, { cache: 'no-store' })
                 .then(response => {
                     console.info('loadData(): /data response status', response.status);
                     if (!response.ok) {
@@ -154,7 +156,8 @@
                     debugMsg.textContent = '/data fetched OK';
 
                     // Now request server-side status to confirm the server saw the request
-                    fetch('/data/status')
+                    const statusUrl = '/data/status?bust=' + Date.now();
+                    fetch(statusUrl, { cache: 'no-store' })
                         .then(r => r.json())
                         .then(status => {
                             console.info('/data/status', status);
