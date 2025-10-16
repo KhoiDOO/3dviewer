@@ -70,6 +70,20 @@ def data_status():
     resp.headers['Expires'] = '0'
     return resp
 
+
+@app.route('/data_files.json')
+def serve_data_files_json():
+    """Serve the raw data_files.json from the project root for client fallback."""
+    if not os.path.isfile(DATA_FILES_PATH):
+        app.logger.error("%s not found for direct serve", DATA_FILES_PATH)
+        return "data_files.json not found on server.", 404
+    resp = send_from_directory('.', DATA_FILES_PATH)
+    # set no-cache headers
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    resp.headers['Pragma'] = 'no-cache'
+    resp.headers['Expires'] = '0'
+    return resp
+
 @app.route('/object')
 def get_object():
     file_path = request.args.get('path')

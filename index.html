@@ -140,7 +140,19 @@
                     if (!response.ok) {
                         throw new Error('Server returned ' + response.status);
                     }
-                    return response.json();
+                    return response.text().then(text => {
+                        // try parse as JSON first; if it looks like HTML, fallback
+                        try {
+                            return JSON.parse(text);
+                        } catch (e) {
+                            // If response starts with '<', it's probably HTML (index.html)
+                            if (text.trim().startsWith('<')) {
+                                throw new Error('non-json-response');
+                            }
+                            // maybe it's JSON but parse failed due to BOM or similar; rethrow
+                            throw e;
+                        }
+                    });
                 })
                 .then(data => {
                     console.info('loadData(): parsed JSON', data && Object.keys(data).length);
@@ -170,6 +182,34 @@
                 })
                 .catch(err => {
                     console.error('loadData(): failed to fetch /data', err);
+                    // If error indicates HTML was returned, try the fallback
+                    if (err && err.message === 'non-json-response') {
+                        debugMsg.textContent = '/data returned HTML; trying fallback /data_files.json';
+                        fetch('/data_files.json', { cache: 'no-store' })
+                            .then(r => {
+                                if (!r.ok) throw new Error('fallback returned ' + r.status);
+                                return r.json();
+                            })
+                            .then(fallbackData => {
+                                console.info('Fallback data_files.json loaded', fallbackData && Object.keys(fallbackData).length);
+                                fileData = fallbackData;
+                                const datasets = Object.keys(fallbackData);
+                                datasets.forEach(dataset => {
+                                    const option = document.createElement('option');
+                                    option.value = dataset;
+                                    option.textContent = dataset;
+                                    datasetSelect.appendChild(option);
+                                });
+                                datasetSelect.dispatchEvent(new Event('change'));
+                                debugMsg.textContent = 'Fallback loaded /data_files.json';
+                            })
+                            .catch(ferr => {
+                                console.error('Fallback failed', ferr);
+                                debugMsg.textContent = 'ERROR fallback /data_files.json: ' + ferr.message;
+                            });
+                        return;
+                    }
+
                     debugMsg.textContent = 'ERROR fetching /data: ' + err.message;
                 });
         }
