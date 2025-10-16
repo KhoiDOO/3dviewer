@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, send_file
 import argparse
 import json
 import os
@@ -24,8 +24,23 @@ def get_object():
     if not file_path:
         return "File path is required.", 400
 
-    # send_from_directory needs directory and filename separately
+    # Normalize the path to remove any redundant separators
+    file_path = os.path.normpath(file_path)
+
+    # If an absolute path was provided (e.g. /mnt/...), serve it directly
+    if os.path.isabs(file_path):
+        if not os.path.isfile(file_path):
+            return "File not found.", 404
+        # Use send_file for absolute paths
+        return send_file(file_path)
+
+    # For relative paths, keep the original behavior using send_from_directory
     directory, filename = os.path.split(file_path)
+    if not directory:
+        directory = '.'
+    full_path = os.path.join(directory, filename)
+    if not os.path.isfile(full_path):
+        return "File not found.", 404
     return send_from_directory(directory, filename)
 
 @app.route('/js/<path:path>')
