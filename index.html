@@ -58,6 +58,11 @@
         </select>
     </div>
 
+    <div id="debug-status" style="position:absolute;bottom:10px;right:10px;padding:8px;background:rgba(0,0,0,0.6);color:#0f0;border-radius:4px;font-size:12px;max-width:320px;">
+        <div><strong>Debug:</strong></div>
+        <div id="debug-msg">waiting for /data...</div>
+    </div>
+
     <div id="info">
         <div><strong>Object Info:</strong></div>
         <div id="vertices-count">Vertices: -</div>
@@ -123,9 +128,20 @@
         }
 
         function loadData() {
+            console.info('loadData(): starting fetch /data');
+            const debugMsg = document.getElementById('debug-msg');
+            debugMsg.textContent = 'fetching /data...';
+
             fetch('/data')
-                .then(response => response.json())
+                .then(response => {
+                    console.info('loadData(): /data response status', response.status);
+                    if (!response.ok) {
+                        throw new Error('Server returned ' + response.status);
+                    }
+                    return response.json();
+                })
                 .then(data => {
+                    console.info('loadData(): parsed JSON', data && Object.keys(data).length);
                     fileData = data;
                     const datasets = Object.keys(data);
                     datasets.forEach(dataset => {
@@ -135,6 +151,23 @@
                         datasetSelect.appendChild(option);
                     });
                     datasetSelect.dispatchEvent(new Event('change'));
+                    debugMsg.textContent = '/data fetched OK';
+
+                    // Now request server-side status to confirm the server saw the request
+                    fetch('/data/status')
+                        .then(r => r.json())
+                        .then(status => {
+                            console.info('/data/status', status);
+                            debugMsg.textContent = '/data status: count=' + status.count + ', last=' + status.last_request_time;
+                        })
+                        .catch(err => {
+                            console.warn('Could not fetch /data/status', err);
+                            debugMsg.textContent = '/data fetched but /data/status failed';
+                        });
+                })
+                .catch(err => {
+                    console.error('loadData(): failed to fetch /data', err);
+                    debugMsg.textContent = 'ERROR fetching /data: ' + err.message;
                 });
         }
 
