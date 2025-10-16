@@ -16,18 +16,13 @@ def index():
 def get_data():
     with open(DATA_FILES_PATH, 'r') as f:
         data = json.load(f)
-        print("data:", data)
     return jsonify(data)
 
 @app.route('/object')
 def get_object():
     file_path = request.args.get('path')
-    print(file_path)
     if not file_path:
         return "File path is required.", 400
-
-    if not os.path.exists(abs_path):
-        return "File not found.", 404
 
     # send_from_directory needs directory and filename separately
     directory, filename = os.path.split(file_path)
