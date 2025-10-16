@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dokh-zip-objarverse-abc-shape
+spec:
+  ttlSecondsAfterFinished: 60
+  template:
+    spec:
+      schedulerName: volcano
+      restartPolicy: Never
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: objarverse-shape
+      - name: key
+        persistentVolumeClaim:
+          claimName: key
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 64Gi
+      containers:
+      - name: zip-objarverse-abc-shape
+        image: kohido/base_dl_cuda129:v0.0.7
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        command: ["bash","-lc"]
+        args:
+        - |
+            cd /mnt/data/objarverse_shape
+            zip -r abc.zip abc/
+
+        volumeMounts:
+        - {name: data, mountPath: /mnt/data}
+        - {name: key, mountPath: /mnt/key}
+        - {name: dshm, mountPath: /dev/shm}
+        resources:
+          limits:   { cpu: "16",  memory: "64Gi" }
+          requests: { cpu: "16",  memory: "64Gi" }

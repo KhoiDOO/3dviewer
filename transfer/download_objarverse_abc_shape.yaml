@@ -1,0 +1,51 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dokh-download-objarverse-abc-shape
+spec:
+  ttlSecondsAfterFinished: 60
+  template:
+    spec:
+      schedulerName: volcano
+      restartPolicy: Never
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: objarverse-shape
+      - name: key
+        persistentVolumeClaim:
+          claimName: key
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 64Gi
+      containers:
+      - name: download-objarverse-abc-shape
+        image: kohido/base_dl_cuda129:v0.0.7
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: LOCAL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: dokh-secret
+              key: LOCAL_PASSWORD
+        command: ["bash","-lc"]
+        args:
+        - |
+            apt-get install -y iputils-ping openssh-client netcat-openbsd sshpass
+            mkdir -p ~/.ssh
+            cp /mnt/key/kubeflow_transfer ~/.ssh/kubeflow_transfer
+            chmod 600 ~/.ssh/kubeflow_transfer
+
+            echo "StrictHostKeyChecking no" >> ~/.ssh/config
+
+            sshpass -p ${LOCAL_PASSWORD} scp /mnt/data/objarverse_shape/abc.zip koi@134.226.54.68:/media/koi/Expansion/data/objarverse_shape
+
+        volumeMounts:
+        - {name: data, mountPath: /mnt/data}
+        - {name: key, mountPath: /mnt/key}
+        - {name: dshm, mountPath: /dev/shm}
+        resources:
+          limits:   { cpu: "16",  memory: "64Gi" }
+          requests: { cpu: "16",  memory: "64Gi" }
