@@ -2,7 +2,7 @@ import os
 import json
 import argparse
 
-def create_data_files(use_relative_paths=False, server_root=None):
+def create_data_files(data_json_path=None, use_relative_paths=False, server_root=None):
     """
     Generate data_files.json containing OBJ file paths.
     
@@ -10,7 +10,7 @@ def create_data_files(use_relative_paths=False, server_root=None):
         use_relative_paths: If True, converts absolute paths to relative paths for browser use
         server_root: Base directory to make paths relative to (if use_relative_paths=True)
     """
-    data_json = "data.json"
+    data_json = data_json_path if data_json_path else "data.json"
     assert os.path.exists(data_json), f"{data_json} does not exist"
     
     with open(data_json, "r") as f:
@@ -54,6 +54,7 @@ def create_data_files(use_relative_paths=False, server_root=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate data_files.json containing paths to OBJ files")
+    parser.add_argument("--data_path", default=None, help="Data Json path")
     parser.add_argument("--relative", action="store_true", help="Generate relative paths instead of absolute paths")
     parser.add_argument("--server-root", type=str, default=os.getcwd(),
                         help="Server root directory to use for relative path calculation (default: current dir)")
@@ -66,4 +67,4 @@ if __name__ == "__main__":
     else:
         print("Using absolute paths (may not work in browser)")
     
-    create_data_files(use_relative_paths=args.relative, server_root=args.server_root)
+    create_data_files(data_json_path=args.data_path, use_relative_paths=args.relative, server_root=args.server_root)

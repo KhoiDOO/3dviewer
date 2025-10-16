@@ -1,0 +1,58 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dokh-3dviewer-objarverse-abc
+spec:
+  ttlSecondsAfterFinished: 60
+  template:
+    spec:
+      schedulerName: volcano
+      restartPolicy: Never
+      volumes:
+      - name: project
+        persistentVolumeClaim:
+          claimName: prj-0
+      - name: shape
+        persistentVolumeClaim:
+          claimName: objarverse-shape
+      - name: clean
+        persistentVolumeClaim:
+          claimName: objarverse-clean
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 256Gi
+      containers:
+      - name: 3dviewer-objarverse-abc
+        image: kohido/3d_dl_cuda129:v0.0.4
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        command: ["bash","-lc"]
+        args:
+        - |
+          set -e
+          cd /mnt/prj/
+          mkdir -p 3dviewer_deploy
+          cd 3dviewer_deploy
+          mkdir -p abc
+          cd abc
+          if [ -d "3dviewer" ]; then
+            cd 3dviewer
+            git pull
+          else
+            git clone https://github.com/trinity-graphics/3dviewer.git
+            cd 3dviewer/
+          fi
+          pip install -r requirements.txt
+          python3 contruct.py --data_path objarverse_abc.json --relative
+          python3 main.py
+
+        volumeMounts:
+        - {name: project, mountPath: /mnt/prj/}
+        - {name: shape, mountPath: /mnt/shape/}
+        - {name: clean, mountPath: /mnt/clean/}
+        - {name: dshm, mountPath: /dev/shm}
+        resources:
+          limits:   { cpu: "48",  memory: "256Gi" }
+          requests: { cpu: "48",  memory: "256Gi" }
