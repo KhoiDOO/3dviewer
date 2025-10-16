@@ -53,13 +53,22 @@ def get_data():
         app.logger.error("Failed to parse %s: %s", DATA_FILES_PATH, e)
         return "data_files.json is invalid.", 500
 
-    return jsonify(data)
+    resp = jsonify(data)
+    # Advise clients and intermediate caches not to serve cached content
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    resp.headers['Pragma'] = 'no-cache'
+    resp.headers['Expires'] = '0'
+    return resp
 
 
 @app.route('/data/status')
 def data_status():
     """Return simple status about /data requests so the user can confirm index.html requested the JSON."""
-    return jsonify(data_request_info)
+    resp = jsonify(data_request_info)
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    resp.headers['Pragma'] = 'no-cache'
+    resp.headers['Expires'] = '0'
+    return resp
 
 @app.route('/object')
 def get_object():
