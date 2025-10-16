@@ -16,7 +16,7 @@ def index():
 def get_data():
     with open(DATA_FILES_PATH, 'r') as f:
         data = json.load(f)
-        print(data)
+        print("data:", data)
     return jsonify(data)
 
 @app.route('/object')
