@@ -118,4 +118,5 @@ if __name__ == '__main__':
     parser.add_argument("--port", default=8080, help="Port address")
     args = parser.parse_args()
     
-    app.run(debug=True, port=args.port)
+    # bind to 0.0.0.0 so the server is reachable from other containers / the node
+    app.run(debug=True, host='0.0.0.0', port=int(args.port))
