@@ -1,4 +1,5 @@
 from flask import Flask, jsonify, request, send_from_directory
+import argparse
 import json
 import os
 
@@ -56,4 +57,8 @@ def send_js(path):
     return send_from_directory('js', path)
 
 if __name__ == '__main__':
-    app.run(debug=True, port=8080)
+    parser = argparse.ArgumentParser(description="Generate data_files.json containing paths to OBJ files")
+    parser.add_argument("--port", default=8080, help="Port address")
+    args = parser.parse_args()
+    
+    app.run(debug=True, port=args.port)
