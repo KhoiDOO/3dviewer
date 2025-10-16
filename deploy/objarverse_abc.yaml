@@ -45,7 +45,7 @@ spec:
             cd 3dviewer/
           fi
           pip install -r requirements.txt
-          python3 construct.py --data_path objarverse_abc.json --relative
+          python3 construct.py --data_path objarverse_abc.json
           python3 main.py --port 8080
 
         volumeMounts:
@@ -59,17 +59,3 @@ spec:
         ports:
         - containerPort: 8080
           name: http
-
-apiVersion: v1
-kind: Service
-metadata:
-  name: dokh-3dviewer-objarverse-abc-svc
-spec:
-  selector:
-    job-name: dokh-3dviewer-objarverse-abc
-  ports:
-  - name: http
-    protocol: TCP
-    port: 8080
-    targetPort: 8080
-  type: ClusterIP
