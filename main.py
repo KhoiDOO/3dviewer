@@ -2,11 +2,19 @@ from flask import Flask, jsonify, request, send_from_directory, send_file
 import argparse
 import json
 import os
+import datetime
 
 app = Flask(__name__)
 
 # Path to the data_files.json
 DATA_FILES_PATH = 'data_files.json'
+
+# Simple in-memory tracking for /data requests so clients can verify the JSON was requested
+data_request_info = {
+    'count': 0,
+    'last_request_time': None,
+    'last_request_ip': None,
+}
 
 @app.route('/')
 def index():
@@ -14,9 +22,25 @@ def index():
 
 @app.route('/data')
 def get_data():
+    # Update tracking info
+    data_request_info['count'] += 1
+    try:
+        # remote_addr may be None in some setups
+        data_request_info['last_request_ip'] = request.remote_addr
+    except Exception:
+        data_request_info['last_request_ip'] = None
+
+    data_request_info['last_request_time'] = datetime.datetime.now(datetime.timezone.utc).isoformat() + 'Z'
+
     with open(DATA_FILES_PATH, 'r') as f:
         data = json.load(f)
     return jsonify(data)
+
+
+@app.route('/data/status')
+def data_status():
+    """Return simple status about /data requests so the user can confirm index.html requested the JSON."""
+    return jsonify(data_request_info)
 
 @app.route('/object')
 def get_object():
