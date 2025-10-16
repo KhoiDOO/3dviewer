@@ -5,6 +5,7 @@ import os
 import datetime
 
 app = Flask(__name__)
+app.logger.setLevel('INFO')
 
 # Path to the data_files.json
 DATA_FILES_PATH = 'data_files.json'
@@ -18,22 +19,28 @@ data_request_info = {
 
 @app.route('/')
 def index():
+    app.logger.info("Serving index.html to %s", request.remote_addr)
     return send_from_directory('.', 'index.html')
 
 @app.route('/data')
 def get_data():
-    # Update tracking info
+    # Log and update tracking info
+    app.logger.info("/data requested from %s - UA: %s", request.remote_addr, request.headers.get('User-Agent'))
     data_request_info['count'] += 1
-    try:
-        # remote_addr may be None in some setups
-        data_request_info['last_request_ip'] = request.remote_addr
-    except Exception:
-        data_request_info['last_request_ip'] = None
-
+    # remote_addr may be None in some setups
+    data_request_info['last_request_ip'] = request.remote_addr
     data_request_info['last_request_time'] = datetime.datetime.now(datetime.timezone.utc).isoformat() + 'Z'
 
-    with open(DATA_FILES_PATH, 'r') as f:
-        data = json.load(f)
+    try:
+        with open(DATA_FILES_PATH, 'r') as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        app.logger.error("%s not found", DATA_FILES_PATH)
+        return "data_files.json not found on server.", 500
+    except json.JSONDecodeError as e:
+        app.logger.error("Failed to parse %s: %s", DATA_FILES_PATH, e)
+        return "data_files.json is invalid.", 500
+
     return jsonify(data)
 
 
