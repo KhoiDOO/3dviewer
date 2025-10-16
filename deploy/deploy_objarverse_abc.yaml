@@ -45,7 +45,7 @@ spec:
             cd 3dviewer/
           fi
           pip install -r requirements.txt
-          python3 contruct.py --data_path objarverse_abc.json --relative
+          python3 construct.py --data_path objarverse_abc.json --relative
           python3 main.py
 
         volumeMounts:
