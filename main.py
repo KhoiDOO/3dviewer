@@ -2,10 +2,22 @@ from flask import Flask, jsonify, request, send_from_directory, send_file
 import argparse
 import json
 import os
+import logging
+import sys
 import datetime
 
 app = Flask(__name__)
-app.logger.setLevel('INFO')
+ # Configure logging to ensure INFO messages are printed to stdout
+handler = logging.StreamHandler(stream=sys.stdout)
+handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(levelname)s in %(module)s: %(message)s')
+handler.setFormatter(formatter)
+root_logger = logging.getLogger()
+if not root_logger.handlers:
+    root_logger.addHandler(handler)
+root_logger.setLevel(logging.INFO)
+app.logger.handlers = root_logger.handlers
+app.logger.setLevel(logging.INFO)
 
 # Path to the data_files.json
 DATA_FILES_PATH = 'data_files.json'
