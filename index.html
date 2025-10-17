@@ -55,7 +55,11 @@
             <option value="surface">Surface</option>
             <option value="wireframe">Wireframe</option>
             <option value="both">Both</option>
+            <option value="components">Components</option>
         </select>
+        <br>
+        <label style="font-size:12px;margin-top:6px;"><input type="checkbox" id="axes-toggle"> Show axes (X)</label>
+        <div style="color:#ddd;font-size:12px;margin-top:6px;">View modes: Surface (solid), Wireframe (edges), Both (overlay), Components (color clusters)</div>
     </div>
 
     <div id="debug-status" style="position:absolute;bottom:10px;right:10px;padding:8px;background:rgba(0,0,0,0.6);color:#0f0;border-radius:4px;font-size:12px;max-width:320px;">
@@ -67,11 +71,21 @@
         <div><strong>Object Info:</strong></div>
         <div id="vertices-count">Vertices: -</div>
         <div id="faces-count">Faces: -</div>
+        <div id="area">Surface area: -</div>
+        <div id="volume">Volume: -</div>
+        <div id="bbox-min">BBox min: -</div>
+        <div id="bbox-max">BBox max: -</div>
+        <div id="bbox-size">BBox size: -</div>
+        <div id="clusters-count">Clusters: -</div>
         <div id="file-name">File: -</div>
     </div>
 
     <div id="instructions">
         <div><strong>Controls:</strong></div>
+        <div>• J/K/L: Surface / Wireframe / Both</div>
+        <div>• C: Toggle Components view</div>
+        <div>• X: Toggle Axes</div>
+        <div>• B: Toggle Bounding Box</div>
         <div><strong>Rotation:</strong></div>
         <div>• A/D: Rotate Y-axis</div>
         <div>• W/S: Rotate X-axis</div>
@@ -88,14 +102,19 @@
         import { OBJLoader } from 'https://cdn.skypack.dev/three@0.132.2/examples/jsm/loaders/OBJLoader.js';
         import { OrbitControls } from 'https://cdn.skypack.dev/three@0.132.2/examples/jsm/controls/OrbitControls.js';
 
-        let scene, camera, renderer, controls, currentObject;
+    let scene, camera, renderer, controls, currentObject;
+    let axesHelper = null;
+    let axesVisible = false;
+    let boxHelper = null;
+    let bboxVisible = false;
 
         const datasetSelect = document.getElementById('dataset-select');
         const objectSelect = document.getElementById('object-select');
-        const viewModeSelect = document.getElementById('view-mode-select');
-        let fileData = {};
+    const viewModeSelect = document.getElementById('view-mode-select');
+    let fileData = {};
+    let prevViewMode = null;
 
-        let wireframeObject;
+    let wireframeObject;
 
         function init() {
             scene = new THREE.Scene();
@@ -117,6 +136,19 @@
             directionalLight.position.set(1, 1, 1);
             scene.add(directionalLight);
 
+            // Create but don't add the axes helper yet; we'll toggle it via checkbox or 'x' key
+            axesHelper = new THREE.AxesHelper(1);
+
+            const axesToggle = document.getElementById('axes-toggle');
+            axesToggle.addEventListener('change', (e) => {
+                axesVisible = !!e.target.checked;
+                if (axesVisible) {
+                    scene.add(axesHelper);
+                } else {
+                    scene.remove(axesHelper);
+                }
+            });
+
             animate();
             loadData();
         }
@@ -124,6 +156,8 @@
         function animate() {
             requestAnimationFrame(animate);
             controls.update();
+            // update boxHelper if present so it follows object transforms
+            if (boxHelper) boxHelper.update();
             renderer.render(scene, camera);
         }
 
@@ -249,6 +283,18 @@
 
             const mode = viewModeSelect.value;
 
+            // Clear any component-coloring metadata
+            if (currentObject._componentColorBackup) {
+                // restore original material per mesh
+                currentObject.traverse((child) => {
+                    if (child.isMesh && child._originalMaterial) {
+                        child.material = child._originalMaterial;
+                        delete child._originalMaterial;
+                    }
+                });
+                delete currentObject._componentColorBackup;
+            }
+
             // Make sure to set the material on all meshes
             currentObject.traverse((child) => {
                 if (child.isMesh) {
@@ -276,28 +322,204 @@
                 });
                 scene.add(wireframeObject);
             }
+
+            if (mode === 'components') {
+                // Color each strongly connected component with a distinct color.
+                applyComponentColors(currentObject);
+            }
+        }
+
+        function applyComponentColors(rootObject) {
+            // For each mesh in the object, compute connected components of its geometry
+            // and assign a different color to faces belonging to different components.
+            // We handle BufferGeometry (indexed or non-indexed).
+            rootObject.traverse((mesh) => {
+                if (!mesh.isMesh || !mesh.geometry) return;
+
+                const geom = mesh.geometry;
+                const pos = geom.attributes.position;
+                if (!pos) return;
+
+                // Backup original material so we can restore later
+                mesh._originalMaterial = mesh.material;
+
+                // Build world-space positions array
+                const vertexCount = pos.count;
+                const worldPos = new Array(vertexCount);
+                const tmp = new THREE.Vector3();
+                for (let i = 0; i < vertexCount; i++) {
+                    tmp.fromBufferAttribute(pos, i);
+                    mesh.localToWorld(tmp);
+                    worldPos[i] = tmp.clone();
+                }
+
+                // Spatial hash / weld nearby vertices within epsilon
+                const eps = 1e-4; // tolerance; adjust if needed
+                const grid = new Map();
+                const rep = new Uint32Array(vertexCount);
+                let repCount = 0;
+                for (let i = 0; i < vertexCount; i++) {
+                    const v = worldPos[i];
+                    const kx = Math.round(v.x / eps);
+                    const ky = Math.round(v.y / eps);
+                    const kz = Math.round(v.z / eps);
+                    const key = kx + '_' + ky + '_' + kz;
+                    if (grid.has(key)) {
+                        rep[i] = grid.get(key);
+                    } else {
+                        grid.set(key, repCount);
+                        rep[i] = repCount;
+                        repCount++;
+                    }
+                }
+
+                // Union-find over representatives
+                const parent = new Uint32Array(repCount);
+                for (let i = 0; i < repCount; i++) parent[i] = i;
+                function find(a) { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; }
+                function union(a,b) { const ra = find(a), rb = find(b); if (ra!==rb) parent[rb]=ra; }
+
+                const index = geom.index ? Array.from(geom.index.array) : null;
+                if (index) {
+                    for (let i = 0; i < index.length; i += 3) {
+                        const a = rep[index[i]];
+                        const b = rep[index[i+1]];
+                        const c = rep[index[i+2]];
+                        union(a,b); union(b,c); union(c,a);
+                    }
+                } else {
+                    for (let i = 0; i < vertexCount; i += 3) {
+                        const a = rep[i], b = rep[i+1], c = rep[i+2];
+                        union(a,b); union(b,c); union(c,a);
+                    }
+                }
+
+                // Map root -> component id
+                const compId = new Map();
+                let compCount = 0;
+                for (let i = 0; i < repCount; i++) {
+                    const r = find(i);
+                    if (!compId.has(r)) compId.set(r, compCount++);
+                }
+
+                // Create a color array per vertex (RGB floats) based on component of its representative
+                const colors = new Float32Array(vertexCount * 3);
+                for (let i = 0; i < vertexCount; i++) {
+                    const cid = compId.get(find(rep[i]));
+                    const hue = (cid * 0.618033988749895) % 1.0;
+                    const col = new THREE.Color().setHSL(hue, 0.6, 0.5);
+                    colors[i*3] = col.r;
+                    colors[i*3+1] = col.g;
+                    colors[i*3+2] = col.b;
+                }
+
+                geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+                // Use MeshPhongMaterial (or clone original) but enable vertexColors
+                const mat = mesh.material && mesh.material.clone ? mesh.material.clone() : new THREE.MeshPhongMaterial();
+                mat.vertexColors = true;
+                mesh.material = mat;
+                // Mark that we applied component coloring
+                rootObject._componentColorBackup = true;
+                // return component count for this mesh (we'll map reps to ids earlier)
+                mesh._componentCount = compCount;
+            });
+            // set clusters count total across meshes
+            let totalClusters = 0;
+            rootObject.traverse((m) => { if (m._componentCount) totalClusters += m._componentCount; });
+            document.getElementById('clusters-count').textContent = `Clusters: ${totalClusters}`;
         }
 
         function updateObjectInfo(object) {
+            // Computes vertex count, face count, surface area and approximate volume.
             let totalVertices = 0;
             let totalFaces = 0;
+            let totalArea = 0; // surface area
+            let signedVolume = 0; // signed volume from triangles (w.r.t origin)
+
+            const vA = new THREE.Vector3();
+            const vB = new THREE.Vector3();
+            const vC = new THREE.Vector3();
+            const ab = new THREE.Vector3();
+            const cb = new THREE.Vector3();
+            const cross = new THREE.Vector3();
+            const cross2 = new THREE.Vector3();
+
+            object.updateMatrixWorld(true);
 
             object.traverse((child) => {
-                if (child.isMesh && child.geometry) {
-                    const geometry = child.geometry;
-                    if (geometry.attributes.position) {
-                        totalVertices += geometry.attributes.position.count;
+                if (!child.isMesh || !child.geometry) return;
+
+                const geom = child.geometry;
+                const position = geom.attributes.position;
+                if (!position) return;
+
+                const index = geom.index ? geom.index.array : null;
+
+                totalVertices += position.count;
+
+                const fetchAndWorld = (idx, target) => {
+                    target.fromBufferAttribute(position, idx);
+                    child.localToWorld(target);
+                };
+
+                if (index) {
+                    totalFaces += index.length / 3;
+                    for (let i = 0; i < index.length; i += 3) {
+                        fetchAndWorld(index[i], vA);
+                        fetchAndWorld(index[i+1], vB);
+                        fetchAndWorld(index[i+2], vC);
+
+                        // area: 0.5 * |(B-A) x (C-A)|
+                        ab.subVectors(vB, vA);
+                        cb.subVectors(vC, vA);
+                        cross.crossVectors(ab, cb);
+                        totalArea += 0.5 * cross.length();
+
+                        // signed volume: (1/6) * dot(A, B x C)
+                        cross2.crossVectors(vB, vC);
+                        signedVolume += vA.dot(cross2) / 6.0;
                     }
-                    if (geometry.index) {
-                        totalFaces += geometry.index.count / 3;
-                    } else if (geometry.attributes.position) {
-                        totalFaces += geometry.attributes.position.count / 3;
+                } else {
+                    const posCount = position.count;
+                    totalFaces += posCount / 3;
+                    for (let i = 0; i < posCount; i += 3) {
+                        fetchAndWorld(i, vA);
+                        fetchAndWorld(i+1, vB);
+                        fetchAndWorld(i+2, vC);
+
+                        ab.subVectors(vB, vA);
+                        cb.subVectors(vC, vA);
+                        cross.crossVectors(ab, cb);
+                        totalArea += 0.5 * cross.length();
+
+                        cross2.crossVectors(vB, vC);
+                        signedVolume += vA.dot(cross2) / 6.0;
                     }
                 }
             });
 
+            const volume = Math.abs(signedVolume);
+
             document.getElementById('vertices-count').textContent = `Vertices: ${totalVertices.toLocaleString()}`;
             document.getElementById('faces-count').textContent = `Faces: ${Math.floor(totalFaces).toLocaleString()}`;
+            document.getElementById('area').textContent = `Surface area: ${totalArea.toFixed(3)}`;
+            document.getElementById('volume').textContent = `Volume: ${volume.toFixed(3)}`;
+
+            // compute and display bounding box info (in world space) only when visible
+            if (bboxVisible) {
+                const box = new THREE.Box3().setFromObject(object);
+                const min = box.min;
+                const max = box.max;
+                const size = box.getSize(new THREE.Vector3());
+                document.getElementById('bbox-min').textContent = `BBox min: (${min.x.toFixed(4)}, ${min.y.toFixed(4)}, ${min.z.toFixed(4)})`;
+                document.getElementById('bbox-max').textContent = `BBox max: (${max.x.toFixed(4)}, ${max.y.toFixed(4)}, ${max.z.toFixed(4)})`;
+                document.getElementById('bbox-size').textContent = `BBox size: (${size.x.toFixed(4)}, ${size.y.toFixed(4)}, ${size.z.toFixed(4)})`;
+            } else {
+                document.getElementById('bbox-min').textContent = `BBox min: -`;
+                document.getElementById('bbox-max').textContent = `BBox max: -`;
+                document.getElementById('bbox-size').textContent = `BBox size: -`;
+            }
         }
 
         function loadObject(path) {
@@ -327,6 +549,26 @@
                     const center = box.getCenter(new THREE.Vector3());
                     object.position.sub(center);
                     scene.add(object);
+
+                    // adjust axes helper scale and position to match object size
+                    if (axesHelper) {
+                        const size = box.getSize(new THREE.Vector3());
+                        const maxDim = Math.max(size.x, size.y, size.z);
+                        const scale = Math.max(1e-3, maxDim);
+                        axesHelper.scale.set(scale, scale, scale);
+                        // position axes at object center (object was recentered to origin, so center=0)
+                        axesHelper.position.copy(object.position);
+                        if (axesVisible) {
+                            if (!scene.children.includes(axesHelper)) scene.add(axesHelper);
+                        }
+                    }
+
+                    // create/update box helper if currently visible
+                    if (bboxVisible) {
+                        if (boxHelper) scene.remove(boxHelper);
+                        boxHelper = new THREE.BoxHelper(object, 0xffff00);
+                        scene.add(boxHelper);
+                    }
 
                     updateViewMode();
 
@@ -358,7 +600,64 @@
         init();
 
         function handleKeyDown(event) {
-            const rotationSpeed = 0.05;
+            const rotationSpeed = 0.1; // radians per key press
+
+            // View mode shortcuts (J/K/L, case-insensitive) and C toggle for Components
+            const key = event.key.toLowerCase();
+            if (key === 'c') {
+                if (viewModeSelect.value !== 'components') {
+                    prevViewMode = viewModeSelect.value;
+                    viewModeSelect.value = 'components';
+                } else {
+                    viewModeSelect.value = prevViewMode || 'surface';
+                    prevViewMode = null;
+                }
+                updateViewMode();
+                return;
+            }
+
+            if (key === 'j' || key === 'k' || key === 'l') {
+                if (key === 'j') viewModeSelect.value = 'surface';
+                if (key === 'k') viewModeSelect.value = 'wireframe';
+                if (key === 'l') viewModeSelect.value = 'both';
+                updateViewMode();
+                return;
+            }
+
+            // Toggle axes helper with 'x' key
+            if (key === 'x') {
+                axesVisible = !axesVisible;
+                const axesToggleElem = document.getElementById('axes-toggle');
+                axesToggleElem.checked = axesVisible;
+                if (axesVisible) {
+                    if (axesHelper && !scene.children.includes(axesHelper)) scene.add(axesHelper);
+                } else {
+                    if (axesHelper) scene.remove(axesHelper);
+                }
+                return;
+            }
+
+            // Toggle bounding box with 'b' key
+            if (key === 'b') {
+                bboxVisible = !bboxVisible;
+                if (!bboxVisible) {
+                    if (boxHelper) { scene.remove(boxHelper); boxHelper = null; }
+                    // clear bbox text
+                    document.getElementById('bbox-min').textContent = `BBox min: -`;
+                    document.getElementById('bbox-max').textContent = `BBox max: -`;
+                    document.getElementById('bbox-size').textContent = `BBox size: -`;
+                } else {
+                    if (currentObject) {
+                        if (boxHelper) scene.remove(boxHelper);
+                        boxHelper = new THREE.BoxHelper(currentObject, 0xffff00);
+                        scene.add(boxHelper);
+                        // update info immediately
+                        updateObjectInfo(currentObject);
+                    }
+                }
+                return;
+            }
+
             if (currentObject) {
                 switch (event.key) {
                     // Rotation controls
