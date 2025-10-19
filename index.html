@@ -59,6 +59,10 @@
         </select>
         <br>
         <label style="font-size:12px;margin-top:6px;"><input type="checkbox" id="axes-toggle"> Show axes (X)</label>
+        <br>
+        <button id="download-btn" style="margin-top:6px;">Download OBJ</button>
+        <br>
+        <label style="font-size:12px;margin-top:6px;"><input type="checkbox" id="weld-toggle"> Weld nearby vertices (spatial weld)</label>
         <div style="color:#ddd;font-size:12px;margin-top:6px;">View modes: Surface (solid), Wireframe (edges), Both (overlay), Components (color clusters)</div>
     </div>
 
@@ -85,7 +89,9 @@
         <div>• J/K/L: Surface / Wireframe / Both</div>
         <div>• C: Toggle Components view</div>
         <div>• X: Toggle Axes</div>
-        <div>• B: Toggle Bounding Box</div>
+    <div>• B: Toggle Bounding Box</div>
+    <div>• D / Shift+D: Download OBJ (button or Shift+D)</div>
+    <div>• Weld toggle: Enable spatial weld to merge nearby vertices before computing components (uncheck to use strict vertex connectivity)</div>
         <div><strong>Rotation:</strong></div>
         <div>• A/D: Rotate Y-axis</div>
         <div>• W/S: Rotate X-axis</div>
@@ -99,8 +105,9 @@
 
     <script type="module">
         import * as THREE from 'https://cdn.skypack.dev/three@0.132.2';
-        import { OBJLoader } from 'https://cdn.skypack.dev/three@0.132.2/examples/jsm/loaders/OBJLoader.js';
-        import { OrbitControls } from 'https://cdn.skypack.dev/three@0.132.2/examples/jsm/controls/OrbitControls.js';
+    import { OBJLoader } from 'https://cdn.skypack.dev/three@0.132.2/examples/jsm/loaders/OBJLoader.js';
+    import { OrbitControls } from 'https://cdn.skypack.dev/three@0.132.2/examples/jsm/controls/OrbitControls.js';
+    import { OBJExporter } from 'https://cdn.skypack.dev/three@0.132.2/examples/jsm/exporters/OBJExporter.js';
 
     let scene, camera, renderer, controls, currentObject;
     let axesHelper = null;
@@ -115,6 +122,8 @@
     let prevViewMode = null;
 
     let wireframeObject;
+    let downloadBtn = null;
+    let weldToggle = null;
 
         function init() {
             scene = new THREE.Scene();
@@ -148,6 +157,20 @@
                     scene.remove(axesHelper);
                 }
             });
+
+            // Download button wiring
+            downloadBtn = document.getElementById('download-btn');
+            if (downloadBtn) {
+                downloadBtn.disabled = true; // disabled until an object is loaded
+                downloadBtn.addEventListener('click', () => downloadCurrentObject());
+            }
+
+            // Weld toggle wiring
+            weldToggle = document.getElementById('weld-toggle');
+            if (weldToggle) {
+                // default to welded behavior for backward compatibility
+                weldToggle.checked = true;
+            }
 
             animate();
             loadData();
@@ -329,6 +352,31 @@
             }
         }
 
+        function downloadCurrentObject() {
+            if (!currentObject) {
+                alert('No object loaded to download.');
+                return;
+            }
+            try {
+                const exporter = new OBJExporter();
+                // exporter.parse returns a string containing the OBJ data
+                const objText = exporter.parse(currentObject);
+                const blob = new Blob([objText], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                const name = (document.getElementById('file-name') && document.getElementById('file-name').textContent.replace('File: ', '')) || 'model.obj';
+                a.href = url;
+                a.download = name.endsWith('.obj') ? name : (name + '.obj');
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+            } catch (err) {
+                console.error('Failed to export OBJ', err);
+                alert('Export failed: ' + (err && err.message ? err.message : String(err)));
+            }
+        }
+
         function applyComponentColors(rootObject) {
             // For each mesh in the object, compute connected components of its geometry
             // and assign a different color to faces belonging to different components.
@@ -353,24 +401,38 @@
                     worldPos[i] = tmp.clone();
                 }
 
-                // Spatial hash / weld nearby vertices within epsilon
-                const eps = 1e-4; // tolerance; adjust if needed
-                const grid = new Map();
-                const rep = new Uint32Array(vertexCount);
-                let repCount = 0;
-                for (let i = 0; i < vertexCount; i++) {
-                    const v = worldPos[i];
-                    const kx = Math.round(v.x / eps);
-                    const ky = Math.round(v.y / eps);
-                    const kz = Math.round(v.z / eps);
-                    const key = kx + '_' + ky + '_' + kz;
-                    if (grid.has(key)) {
-                        rep[i] = grid.get(key);
-                    } else {
-                        grid.set(key, repCount);
-                        rep[i] = repCount;
-                        repCount++;
+                // Determine representatives and connectivity.
+                // If weldToggle is checked (default), perform spatial welding (existing behavior).
+                // If weldToggle is unchecked, use exact vertex connectivity: vertices are only
+                // unified when they are identical indices referenced by the same triangles.
+                const doWeld = !(weldToggle && weldToggle.checked === false);
+
+                let rep, repCount;
+                if (doWeld) {
+                    // Spatial hash / weld nearby vertices within epsilon
+                    const eps = 1e-4; // tolerance; adjust if needed
+                    const grid = new Map();
+                    rep = new Uint32Array(vertexCount);
+                    repCount = 0;
+                    for (let i = 0; i < vertexCount; i++) {
+                        const v = worldPos[i];
+                        const kx = Math.round(v.x / eps);
+                        const ky = Math.round(v.y / eps);
+                        const kz = Math.round(v.z / eps);
+                        const key = kx + '_' + ky + '_' + kz;
+                        if (grid.has(key)) {
+                            rep[i] = grid.get(key);
+                        } else {
+                            grid.set(key, repCount);
+                            rep[i] = repCount;
+                            repCount++;
+                        }
                     }
+                } else {
+                    // No welding: each vertex index is its own representative initially
+                    rep = new Uint32Array(vertexCount);
+                    for (let i = 0; i < vertexCount; i++) rep[i] = i;
+                    repCount = vertexCount;
                 }
 
                 // Union-find over representatives
@@ -382,12 +444,14 @@
                 const index = geom.index ? Array.from(geom.index.array) : null;
                 if (index) {
                     for (let i = 0; i < index.length; i += 3) {
-                        const a = rep[index[i]];
-                        const b = rep[index[i+1]];
-                        const c = rep[index[i+2]];
+                        const ia = index[i], ib = index[i+1], ic = index[i+2];
+                        const a = rep[ia];
+                        const b = rep[ib];
+                        const c = rep[ic];
                         union(a,b); union(b,c); union(c,a);
                     }
                 } else {
+                    // Non-indexed geometry: triangles are sequential vertices
                     for (let i = 0; i < vertexCount; i += 3) {
                         const a = rep[i], b = rep[i+1], c = rep[i+2];
                         union(a,b); union(b,c); union(c,a);
@@ -531,6 +595,7 @@
                 scene.remove(wireframeObject);
                 wireframeObject = null;
             }
+            if (downloadBtn) downloadBtn.disabled = true;
             const loader = new OBJLoader();
             loader.load(
                 `/object?path=${encodeURIComponent(path)}`,
@@ -581,6 +646,9 @@
                     
                     camera.position.z = cameraZ;
                     controls.update();
+
+                    // enable download button now that object is loaded
+                    if (downloadBtn) downloadBtn.disabled = false;
                 },
                 (xhr) => {
                     console.log((xhr.loaded / xhr.total * 100) + '% loaded');
@@ -633,6 +701,15 @@
                     if (axesHelper && !scene.children.includes(axesHelper)) scene.add(axesHelper);
                 } else {
                     if (axesHelper) scene.remove(axesHelper);
+                }
+                return;
+            }
+
+            // Download shortcut: Shift+D to avoid conflicting with rotation 'd'
+            if (event.key === 'D' || (event.key === 'd' && event.shiftKey)) {
+                // trigger download if available
+                if (downloadBtn && !downloadBtn.disabled) {
+                    downloadCurrentObject();
                 }
                 return;
             }
