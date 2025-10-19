@@ -21,7 +21,7 @@ def create_data_files(data_json_path=None, use_relative_paths=False, server_root
     for dataset_name in data:
         dataset_path = data[dataset_name]
         if not os.path.exists(dataset_path):
-            raise Exception(f"{dataset_path} does not exist")
+            continue
         all_files = []
         for root, dirs, files in os.walk(dataset_path):
             for file in files:
