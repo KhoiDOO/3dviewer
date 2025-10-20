@@ -170,6 +170,13 @@
             if (weldToggle) {
                 // default to welded behavior for backward compatibility
                 weldToggle.checked = true;
+                // when toggled, if we're in components mode, refresh coloring immediately
+                weldToggle.addEventListener('change', () => {
+                    if (viewModeSelect && viewModeSelect.value === 'components' && currentObject) {
+                        // force re-apply component coloring according to new weld state
+                        updateViewMode();
+                    }
+                });
             }
 
             animate();
