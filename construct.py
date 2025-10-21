@@ -2,7 +2,7 @@ import os
 import json
 import argparse
 
-def create_data_files(data_json_path=None, use_relative_paths=False, server_root=None):
+def create_data_files(data_json_path=None, use_relative_paths=False, server_root=None, num_samples=None):
     """
     Generate data_files.json containing OBJ file paths.
     
@@ -39,6 +39,8 @@ def create_data_files(data_json_path=None, use_relative_paths=False, server_root
                     
                     all_files.append(file_path)
         
+        num_samples = num_samples if num_samples is not None else len(all_files)
+        all_files = all_files[:num_samples]
         data_files[dataset_name] = all_files
     
     # Save the data_files.json
@@ -59,6 +61,7 @@ if __name__ == "__main__":
     parser.add_argument("--relative", action="store_true", help="Generate relative paths instead of absolute paths")
     parser.add_argument("--server-root", type=str, default=os.getcwd(),
                         help="Server root directory to use for relative path calculation (default: current dir)")
+    parser.add_argument("--num_samples", type=int, default=None, help="Number of samples to generate (default: 100)")
     
     args = parser.parse_args()
     
@@ -68,4 +71,4 @@ if __name__ == "__main__":
     else:
         print("Using absolute paths (may not work in browser)")
     
-    create_data_files(data_json_path=args.data_path, use_relative_paths=args.relative, server_root=args.server_root)
+    create_data_files(data_json_path=args.data_path, use_relative_paths=args.relative, server_root=args.server_root, num_samples=args.num_samples)
